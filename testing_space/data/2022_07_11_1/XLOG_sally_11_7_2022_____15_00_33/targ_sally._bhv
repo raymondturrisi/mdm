@@ -1,0 +1,101 @@
+//-------------------------------------------------
+// NAME: M. Benjamin, MIT MechE
+// FILE: meta_vehicle.moos
+//-------------------------------------------------
+
+initialize   DEPLOY = false
+initialize   RETURN = false
+initialize   SPDLIMIT = true
+//initialize   DRIFT_X = 0.5
+//initialize   DRIFT_Y = 0.7
+initialize   AVOIDING = idle
+
+//----------------------------------------------
+Behavior = BHV_HSLine
+{ 
+  name = hsline
+
+	time_on_leg = 5
+	condition = DEPLOY=true
+}
+
+//----------------------------------------------
+Behavior = BHV_Waypoint
+{ 
+  name      = waypt_survey
+  pwt       = 60
+  condition = RETURN = false
+  condition = DEPLOY = true
+	endflag   = RETURN = true
+	endflag   = EFLAG  = endings=$[CTR2]
+	cycleflag = CFLAG  = cyles=$[CTR1]
+	wptflag   = WFLAG  = waypoints=$[CTR]
+
+  updates   = WPT_UPDATE
+  perpetual = true
+
+	//wptflag_on_start = true
+
+            lead = 25
+     lead_damper = 20
+   lead_to_start = true
+           speed = 2.0   // meters per second
+    capture_line = true
+  capture_radius = 5.0
+     slip_radius = 20.0
+           order = normal
+	        repeat = 4
+
+          //points = pts={-12,-52:19,-126:84,-98:96,-50:53,-25}
+          //points = pts={-12,-52:92,-308:84,-98:96,-50:53,-25}
+          points = pts={0,-50:0,-150:100,-150:100,-50}
+
+    visual_hints = nextpt_color=yellow
+    visual_hints = nextpt_vertex_size=8
+    visual_hints = nextpt_lcolor=gray70
+    visual_hints = vertex_color=dodger_blue, edge_color=white
+    visual_hints = vertex_size=5, edge_size=1
+}
+
+//----------------------------------------------
+Behavior=BHV_Waypoint
+{
+  name       = waypt_return
+  pwt        = 100
+  condition  = RETURN = true
+  condition  = DEPLOY = true
+  perpetual  = true
+  updates    = RETURN_UPDATE
+  endflag    = RETURN = false
+  endflag    = DEPLOY = false
+  endflag    = MISSION = complete
+
+
+	endflag    = EFLAG  = r_endings=$[CTR_02]
+	cycleflag  = CFLAG  = r_cyles=$[CTR_01]
+	wptflag    = WFLAG  = r_waypoints=$[CTR]
+
+           speed = 2.0
+  capture_radius = 10.0
+     slip_radius = 20.0
+          point = 0,-20
+ }
+
+
+//----------------------------------------------
+//Behavior=BHV_SailFast
+{
+  name       = sail
+  pwt        = 100
+  condition  = RETURN = false
+  condition  = DEPLOY = true
+
+  polar_plot = 0,0:28.8,40.95:47.1,67.57:64.1,82.25:89.3,84.11:110,90:135.7,81.18:149.4,77.47:160.2,59.63:167.6,38.29
+	
+	//polar_plot = 0,0: 20,40: 45,65: 90,80: 110,90: 135,83: 150,83: 165,60: 180,50
+  //	polar_plot = 0,0: 20,40: 45,65: 90,80: 110,90: 135,83: 150,83: 165,60: 180,50
+  // MB default with some v at 180
+  polar_plot = 0,0:28.8,40.95:47.1,67.57:64.1,82.25:89.3,84.11:110,90:135.7,81.18:149.4,77.47:160.2,59.63:167.6,38.29:180,35
+}
+
+

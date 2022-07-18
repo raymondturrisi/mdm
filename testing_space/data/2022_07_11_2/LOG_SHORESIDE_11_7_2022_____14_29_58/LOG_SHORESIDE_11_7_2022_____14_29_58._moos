@@ -1,0 +1,171 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% LOG FILE:       ./LOG_SHORESIDE_11_7_2022_____14_29_58/LOG_SHORESIDE_11_7_2022_____14_29_58._moos
+%% FILE OPENED ON  Wed Dec 31 19:00:00 1969
+%% LOGSTART           1657564197.500548
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+//-------------------------------------------------
+// NAME: M. Benjamin, MIT MechE
+// FILE: meta_shoreside.moos
+//-------------------------------------------------
+
+ServerHost = localhost
+ServerPort = 9000
+Community  = shoreside
+
+MOOSTimeWarp = 1
+
+// MIT Sailing Pavilion (PavLab)
+LatOrigin = 42.358436
+LongOrigin = -71.087448
+
+
+//------------------------------------------
+// Antler configuration  block
+
+ProcessConfig = ANTLER
+{
+  MSBetweenLaunches = 200
+
+  Run = MOOSDB		      @ NewConsole = false
+  Run = pRealm          @ NewConsole = false
+  Run = pMarineViewer	  @ NewConsole = false
+  Run = pLogger         @ NewConsole = false
+  Run = pShare          @ NewConsole = false
+  Run = pHostInfo       @ NewConsole = false
+  Run = uFldShoreBroker @ NewConsole = false
+}
+
+//---------------------------------------------------------
+// pShare Config Block
+
+ProcessConfig = pShare
+{
+  AppTick    = 2
+  CommsTick  = 2
+
+  input = route =  localhost:9200
+}
+
+//--------------------------------------------------
+// pHostInfo configuration block
+
+ProcessConfig = pHostInfo
+{
+  AppTick 	= 1
+  CommsTick = 1
+
+  default_hostip = localhost
+}
+
+//--------------------------------------------------
+// uFldShoreBroker Configuration Block
+
+ProcessConfig = uFldShoreBroker
+{
+  AppTick   = 1
+  CommsTick = 1
+
+  qbridge = DEPLOY, NODE_REPORT, NODE_MESSAGE
+  qbridge = STATION, APPCAST_REQ
+  qbridge = MOOS_MANUAL_OVERRIDE
+ 
+  bridge  = src=WIND_CONDITIONS, alias=WIND_CONDITIONS
+  bridge  = src=WIND_DIR_MOD, alias=WIND_DIR_MOD
+  bridge  = src=SAILPT_UPDATE
+
+  bridge  = src=RETURN_ALL, alias=RETURN
+  bridge  = src=RETURN_$V,  alias=RETURN
+}
+
+//--------------------------------------------------
+// pLogger Configuration Block
+
+ProcessConfig = pLogger
+{
+  AppTick       = 8
+  CommsTick     = 8
+  
+  File          = LOG_SHORESIDE
+  PATH          = ./
+  AsyncLog      = true
+  FileTimeStamp = true
+
+  // Log it all!!!!!
+  LogAuxSrc = true
+  WildCardLogging = true 
+  WildCardOmitPattern = DB_VARSUMMARY
+  WildCardOmitPattern = DB_RWSUMMARY
+}
+
+//------------------------------------------
+// uProcessWatch config block
+
+ProcessConfig = uProcessWatch
+{
+  AppTick   = 4
+  CommsTick = 4
+
+  summary_wait = 5
+
+  nowatch   = uXMS*
+  nowatch   = uMAC*
+  nowatch   = uPokeDB*
+  nowatch   = uTermCommand*
+  watch_all = true
+}
+
+//------------------------------------------
+// pMarineViewer config block
+
+ProcessConfig = pMarineViewer
+{
+  AppTick    = 4
+  CommsTick  = 4
+
+  tiff_file            = MIT_SP.tif
+
+  set_pan_x           = -90
+  set_pan_y           = -280
+  zoom                = 0.95
+  vehicle_shape_scale = 1.5
+  hash_delta          = 50
+  hash_shade          = 0.4
+  hash_viewable       = true
+
+  trails_point_size   = 1
+
+  stale_report_thresh = 10
+  stale_remove_thresh = 20
+
+  // Appcast configuration
+  appcast_height       = 75
+  appcast_width        = 30
+  appcast_viewable     = true
+  appcast_color_scheme = indigo
+  nodes_font_size      = xlarge
+  procs_font_size      = xlarge
+  appcast_font_size    = large
+  
+  left_context[sail-point] = SAILPT_UPDATE = point=$[XPOS],$[YPOS]
+	left_context[sail-point] = DEPLOY_ALL = true
+	left_context[sail-point] = STATION_ALL = false
+
+  scope = DB_UPTIME
+	
+  button_1 = DEPLOY # DEPLOY_ALL=true
+  button_1 = MOOS_MANUAL_OVERRIDE_ALL=false # RETURN_ALL=false
+  
+  button_2 = RETURN:T # RETURN_ALL=true
+  button_3 = RETURN:F # RETURN_ALL=false
+
+  button_4 = REVERSE # WPT_UPDATE_ALL=order=toggle
+
+  button_5 = WIND++ # WIND_DIR_MOD=20
+  button_6 = WIND-- # WIND_DIR_MOD=-20
+
+	button_7 = DEPLOY:F # DEPLOY=false 
+  button_8 = ALL STOP # DEPLOY_ALL=false
+	}
+
+
+
