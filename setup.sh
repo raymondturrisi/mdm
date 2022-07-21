@@ -3,10 +3,9 @@
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         sudo apt install libyaml-dev 
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "Untested"
-        brew install libyaml-dev 
+        brew install libyaml 
 else
-    echo "Not supported"
+    echo "Not supported or tested"
     exit 0
 fi
 
