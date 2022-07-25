@@ -45,9 +45,12 @@ todo:
 from datetime import datetime
 import os
 import json
-from operator import add 
+from operator import add, getitem
 from functools import reduce
+from typing import Dict, AnyStr, Callable, List
 
+
+#Color pallette 
 class bcolors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -87,23 +90,26 @@ def _isbool(var:str):
     else:
         return False
 
-#moos message handler
+#MiddleWare Data Mgr
 class MWDataMgr:
-    '''
-    This tool contains the functions and utilities for managing MOOS and ROS log files, and later has 
-    a command line utility to engage with the functions from terminal. The tool should also work in a 
-    standard iPython environment
-    '''
+    """MWDataMgr is a tool intended to function in both iPython environments, and support command line use. 
+    It's objective is to do as much general heavy lifting which can be done for post-processing MOOS and ROS data file.
+    Files it returns should be either fully processed, or have moved data into a more manipulatable state in data analysis
+    environments such as Python and Matlab. 
+    """
     def __init__(self):
         self._alogs = dict()
         self._moosconfs = dict()
         self._MWDataCollection = dict()
 
+        #When passed a configuration file, these are the MOOS parsing algorithm aliases which should be provided
+        #in order to assign a parsing algorithm to a topic during runtime. 
         self.strategy_aliases = {"NUMBER":self.number_msg,
         "CSP_SIMPLE":self.csp_simple_msg,
         "CSP_NESTED":self.csp_nested_sequence_msg,
         "BOOL":self.boolean_msg}
-        #standard MOOS topics (observed as of 7/11/2022- still growing)
+
+        #Some standard MOOS topics and parsing algorithms
         self.moos_alog_strats = {"VIEW_ARROW":self.csp_simple_msg,
                             "REGION_INFO":self.csp_simple_msg,
                             "APPCAST_REQ":self.csp_simple_msg,
@@ -113,17 +119,15 @@ class MWDataMgr:
                             "DB_EVENT":self.csp_simple_msg,
                             "PLOGGER_STATUS":self.csp_nested_sequence_msg,
                             "APPCAST_REQ_ALL":self.csp_simple_msg,
-                            "DB_QOS":self.csp_nested_sequence_msg,
+                            "DB_QOS":self.comma_separated_lists_msg,
                             "PMARINEVIEWER_STATUS":self.csp_nested_sequence_msg,
                             "PSHARE_STATUS":self.csp_nested_sequence_msg,
-                            "PHI_HOST_INFO":self.csp_simple_msg,
                             "PHOSTINFO_STATUS":self.csp_nested_sequence_msg,
                             "PHI_HOST_IP_VERBOSE":self.csp_simple_msg,
                             "UFLDSHOREBROKER_STATUS":self.csp_nested_sequence_msg,
                             "NODE_BROKER_PING":self.csp_simple_msg,
                             "PSHARE_CMD":self.csp_simple_msg,
                             "NODE_BROKER_ACK_SALLY":self.csp_simple_msg,
-                            "NODE_REPORT":self.csp_simple_msg,
                             "MVIEWER_LCLICK":self.csp_simple_msg,
                             "VIEW_POINT":self.csp_simple_msg,
                             "DB_CLIENTS":self.comma_separated_lists_msg,
@@ -146,10 +150,20 @@ class MWDataMgr:
                             "STATION_ALL":self.boolean_msg,
                             "MOOS_MANUAL_OVERRIDE_ALL":self.boolean_msg,
                             "RETURN_ALL":self.boolean_msg,
+                            "IVPHELM_BHV_ACTIVE":self.comma_separated_lists_msg,
+                            "IVPHELM_BHV_RUNNING":self.comma_separated_lists_msg,
+                            "IVPHELM_BHV_IDLE":self.comma_separated_lists_msg,
+                            "IVPHELM_CREATE_CPU":self.number_msg,
+                            "IVPHELM_LOOP_CPU":self.number_msg,
+                            "IVPHELM_BHV_CNT":self.number_msg,
+                            "IVPHELM_BHV_CNT_EVER":self.number_msg
                             }
+
 
         self.std_moos_topics = list(self.moos_alog_strats.keys())
         self.managed_moos_topics = self.std_moos_topics[:]
+
+        #Parsing these topics will resort in crashes/runtime errors. Best if ignored. 
         self._ros_always_exclude = [
             "/rosout",
             "/rosout_agg",
@@ -157,17 +171,20 @@ class MWDataMgr:
             "/diagnostics_agg",
             "/diagnostics_toplevel_state"
             ]
+        #supported input files
         self.managed_files = ['.alog', '._moos', '.bag']
+
+        #supported output files
         self.supported_outputs = ['csv', 'json']
-        #self.ros_bag_strats = dict()
-        #self.std_ros_msgs = list(self.ros_bag_strats.keys())
-        #self.managed_ros_msgs = list(self.std_ros_msgs.keys())
+        
         return 
     
-    def add_strategies(self, strategies):
-        '''
-        Add a collection of topics and strategies to what the MWDataMgr can handle
-        '''
+    def add_strategies(self, strategies:Dict[AnyStr, Callable]):
+        """Associate a MOOS topic with a parsing alogorithm
+
+        Args:
+            strategies (Dict[AnyStr, Callable]): A dictionary which maps a topic name to a function. This function must take a string, and return a literal, a list, or a dictionary. 
+        """
         self.managed_moos_topics.extend(strategies.keys())
         self.moos_alog_strats.update(**strategies)
         return 
@@ -175,19 +192,24 @@ class MWDataMgr:
     #standard strategies for parsing alog messages
 
     def boolean_msg(self, msg):
-        '''
-        Converts a MOOS string boolean to a JSON boolean (very trivial but more clear)
-        '''
+        """Converts a boolean message to a JSON compatible boolean value
+
+        Args:
+            msg (str): A boolean message as a string (true, True, TRUE, TrUe, etc..)
+
+        Returns:
+            str: JSON compatible boolean message (true, false)
+        """
         return msg.lower()
 
     def number_msg(self, msg):
         """Converts a numeric message to a float or integer
 
         Args:
-            msg (str): Numeric message
+            msg (str): Numeric message as a string
 
         Returns:
-            int or float: Returns a single integer or float to the original precision
+            int or float: Returns a single integer or float at the original precision
         """
         if _isfloat(msg):
             if _isint(msg):
@@ -203,11 +225,12 @@ class MWDataMgr:
             msg (str): Comma separated list of tokens
 
         Returns:
-            list: List of tokens sans commas
+            List: List of tokens sans commas
         """
-        var = msg.split(',')
+        var = msg.split('|')
         if var[-1] == '':
             var.pop()
+        var = '|'.join(var)
         return var 
     
     def csp_simple_msg(self, msg):
@@ -218,10 +241,10 @@ class MWDataMgr:
             msg (str): Comma Separated string of Pairs, where a pair has a left and right hand side of an equals sign
 
         Returns:
-            _type_: _description_
+            Dict: Returns a dictionary for each variable and value pair found in the comma separated message
         """
         new_msg = dict()
-        for pair in msg.split(','):
+        for pair in msg.split('|'):
             section = pair.split("=")
             varname = section[0]
             var = section[1]
@@ -243,14 +266,15 @@ class MWDataMgr:
         memory_max_kb=4724,MOOSName=uMAC_551,Publishing="APPCAST_REQ,APPCAST_REQ_ALL,",Subscribing="APPCAST,"
                                                         ^                            ^
         Args:
-            msg (str): todo
+            msg (str): Comma Separated string of Pairs, where a pair has a left and right hand side of an equals sign, but 
+            a value in the pair may be another comma separated list which requires a more complex parsing scheme (in Python)
 
         Returns:
-            _type_: todo
-        """        
+            Dict: Returns a dictionary for each variable and value pair found in the comma separated message
+        """     
         new_msg = dict()
         idx = 0
-        cs_tokens = msg.split(',')
+        cs_tokens = msg.split('|')
         while idx < len(cs_tokens):
             #get the 'supposed' pair and then split into lhs and rhs
             pair = cs_tokens[idx]
@@ -260,7 +284,7 @@ class MWDataMgr:
                 idx+=1
                 continue
             #if double quotes starts the sequence, then we have encountered a nested list
-            if "\"" == section[1][0]:
+            if len(section[1]) != 0 and "\"" == section[1][0]:
                 varname = section[0]
                 #get the start of the sequence in the list, which be the everything right after this pair
                 sos = cs_tokens.index(pair, idx)+1
@@ -270,12 +294,14 @@ class MWDataMgr:
                         #in the succeeding tokens if they contain another apostrophe, then it is the last element in the nested list
                         break
                 #Reassemble the sequence and make sure these are skipped on the next pass
-                seq = ','.join(cs_tokens[sos:eos]).replace('\"', '')
+                seq = '|'.join(cs_tokens[sos:eos]).replace('\"', '')
                 new_msg.update({varname:seq}) 
                 idx+=(eos-sos)
             else: 
                 varname = section[0]
                 var = section[1]
+                if len(var) == 0:
+                    var = "NA"
                 if _isfloat(var):
                     if _isint(var):
                         var = int(var)
@@ -290,14 +316,14 @@ class MWDataMgr:
     def get_alog(self, alogf=None, include_only=[], exclude=[], use_strategies = True):
         """ Provided a path to a MOOS alogf we return nested dictionaries of the recorded data. Format: 
           data["info", "data"]
-          data["info"]["logfile", "opendate", "logstart"] - access information stored in the top of the log file
+          data["info"]["alias", "logfile", "opendate", "logstart"] - access information stored in the top of the log file
           data["data"]["topic"] - access the timeseries array for the associated topic in a log file
           data["data]["topic"][idx][time, "msg", "src"] - At an index, can access the time which the message was published, the raw string message, and where the message came from
 
         Arguments:
-          alogf {string} -- Path to a MOOS .alog file
-          include_only {list[str, ...]} - List of topics to include - in U and I and not E 
-          exclude {list[str, ...]} - List of topics to exclude - in U and I and not E 
+          alogf (AnyStr) -- Path to a MOOS .alog file
+          include_only {List[AnyStr, ...]} - List of topics to include - in U and I and not E 
+          exclude {List[AnyStr, ...]} - List of topics to exclude - in U and I and not E 
         Returns:
           Dict -- Returns nested dictionaries and arrays
         """
@@ -309,7 +335,7 @@ class MWDataMgr:
             return
         if not os.path.isfile(alogf) or ".alog" not in alogf:
             print(
-                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_alog>: File does not exist or is not a MOOS alog file\n\t <<{alogf}>>")
+                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_alog>: File does not exist or is not a MOOS alog file\n\t < {alogf} >")
             return
         # Initializing the data storage object
         data = dict()
@@ -350,15 +376,15 @@ class MWDataMgr:
                         continue
                     else:
                         print(
-                            f"{bcolors.WARNING}Warning{bcolors.ENDC}: Undefined non-message related header:\n\t << {line} >>")
+                            f"{bcolors.WARNING}Warning{bcolors.ENDC}: Undefined non-message related header:\n\t < {line} >")
                         pass
                 else:
                     chunks = line.split(" ")
                     idx = 0
                     time = -1.0
-                    topic = "-1.0"
-                    src = "-1.0"
-                    msg = "-1.0"
+                    topic = "NA"
+                    src = "NA"
+                    msg = "NA"
                     for component in range(0, len(chunks)):
                         # assuming that the first three parts are the time, the topic, the source, and then the remainder of the line is the message irregardless of the whitespace
                         if chunks[idx] == '':
@@ -368,16 +394,16 @@ class MWDataMgr:
                             time = float(chunks[idx])
                         elif idx == 1:
                             topic = chunks[idx].strip()
-                            
                         elif idx == 2:
                             src = chunks[idx].strip()
                         elif idx == 3:
                             msg = ''.join(chunks[idx:]).strip('\n')
+                            msg = msg.replace(',','|')
+                            if len(msg) == 0:
+                                msg = "NA"
                             if use_strategies:
                                 #TODO: Make this work for generic types and work with suffixed standard topics
-                                #for strat in self.alog_strats.keys():
-                                #    if strat in topic:
-                                #        msg = self.alog_strats[strat](msg)
+                                #i.e. if *STATUS was provided to a mapping, will work for all matches i.e. SALLY_STATUS, LARRY_STATUS, etc..
                                 if topic in self.managed_moos_topics:
                                     msg = self.moos_alog_strats[topic](msg)
                             break
@@ -395,7 +421,7 @@ class MWDataMgr:
         # TODO: WRITE FUNCTION
         """ Provided a path to a logged MOOS configuration file we return nested dictionaries of the recorded data. Format: 
         Arguments:
-          moosf {string} -- Path to a MOOS .alog file
+          moosf (AnyStr) -- Path to a MOOS .alog file
         Returns:
           Dict -- Returns nested dictionaries and arrays
         """
@@ -405,21 +431,28 @@ class MWDataMgr:
             return
         if not os.path.isfile(moosf) or "._moos" not in moosf:
             print(
-                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_moosconf>: File does not exist or is not a MOOS alog file\n\t <<{moosf}>>")
+                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_moosconf>: File does not exist or is not a MOOS alog file\n\t < {moosf} >")
             return
         with open(moosf, "r") as file:
             data = file.read()
         return data
 
     def get_rosbag(self, rosbagf=None, include_only=[], exclude=[]):
-        '''
-        want a similar structure
-        data["info", "data"]
-        data["info"]["logfile", "opendate", "logstart"] - access information stored in the top of the log file
-        data["data"]["topic"] - access the timeseries array for the associated topic in a log file
-        data["data]["topic"][idx][time, "msg", "src"] - At an index, can access the time which the message was published, the raw string message, and where the message came from
-        
-        '''
+
+        """ Provided a path to a MOOS alogf we return nested dictionaries of the recorded data. Format: 
+          data["info", "data"]
+          data["info"]["alias", "opendate", "logstart", "topic_metadata"] - access information stored in the top of the log file
+          data["data"]["topic"] - access the timeseries array for the associated topic in a log file
+          data["data]["topic"][idx][time, "msg"] - At an index, can access the time which the message was published, the raw string message, and where the message came from
+
+        Arguments:
+          rosbagf (AnyStr) -- Path to a rosbag file
+          include_only {List[AnyStr, ...]} - List of topics to include - in U and I and not E, I by default is U
+          exclude {List[AnyStr, ...]} - List of topics to exclude - in U and I and not E, I by default is U
+        Returns:
+          Dict -- Returns nested dictionaries and arrays
+        """
+
         try:
             if "rosbag" not in sys.modules:
                 print(f"{bcolors.OKBLUE}Importing rosbag - this may take some time...{bcolors.ENDC}")
@@ -442,11 +475,15 @@ class MWDataMgr:
             return
         if not os.path.isfile(rosbagf) or ".bag" not in rosbagf:
             print(
-                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_rosbag>: File does not exist or is not a MOOS alog file\n\t <<{rosbagf}>>")
+                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_rosbag>: File does not exist or is not a MOOS alog file\n\t- < {rosbagf} >")
             return
 
-        bag = rosbag.Bag(rosbagf)
-
+        try:
+            bag = rosbag.Bag(rosbagf)
+        except rosbag.bag.ROSBagUnindexedException:
+            print(
+                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_rosbag>: Unindexed/Corrupted ROS bag\n\t- < {rosbagf} >\n\t- Try running \"$ rosbag reindex {rosbagf}\"")
+            return
         #Get the high level bag info
         #src_fname = bag.filename.split(os.path.sep)[-1]
         src_fname = bag.filename
@@ -482,14 +519,13 @@ class MWDataMgr:
             for i, (_topic, msg, t) in enumerate(bag.read_messages(topics=topic)):
                 if msgs_read%1000 == 0:
                     print(f"On {msgs_read}/{job_size}", end='\r')
-                #yaml aint a markup language..
                 try:
                     #msg = {"time":t.to_sec(), **yaml.safe_load(str(msg))}
                     msg = {"time":t.to_sec(), **yaml.load(str(msg), Loader=CLoader)}
                 except TypeError as e:
                     print(f"{bcolors.WARNING}Warning{bcolors.ENDC} <MWDataMgr.get_rosbag>: Error reading message type: \
-                    \n\t > Message type << {baginfo.topics[topic][0]} >> \
-                    \n\t > Lost data << {str(msg)} >> \
+                    \n\t > Message type < {baginfo.topics[topic][0]} > \
+                    \n\t > Lost data < {str(msg)} > \
                     \n\t > Specific error: \"{e}\" \
                     \n\t > Resolution: {bcolors.OKBLUE}Skipping topic{bcolors.ENDC}")
                     data["data"].pop(topic)
@@ -504,7 +540,17 @@ class MWDataMgr:
         with open(fname+".json", "w") as jfile:
             json.dump(data_dict, jfile, indent=2)
 
-    def alog_2_csv(self, alog_dict:dict, dirname:str = None, header = None, force_write = False, ignore_src = False, delim = ',', eol = ''):
+    def alog_2_csv(self, alog_dict:dict, dirname:str = None, force_write = False, ignore_src = False, delim = ',', eol = ''):
+        """Turns an alog file which has been retrieved with our algorithm into a CSV file
+
+        Args:
+            alog_dict (dict): alog data as a dictionary
+            dirname (str, optional): output directory name. Defaults to None.
+            force_write (bool, optional): Whether or not we will automatically write over existing files. Defaults to False.
+            ignore_src (bool, optional): Whether or not we should drop the where the message came from. Defaults to False.
+            delim (str, optional): alternative delimeter. Defaults to ','.
+            eol (str, optional): alternative line terminator, either ''\\n or eol\\n. Defaults to ''.
+        """
         #take a single data storage dictionary and store it as collection of csv files
         '''
         Assuming that a dictionary that was passed is representative of a single mission
@@ -513,7 +559,6 @@ class MWDataMgr:
             topic1.csv
             topic2.csv
             ...
-        The file is as wide as each topics time, number of components in the message, and the source if its included
         '''
         #make the new directory
         if dirname is None:
@@ -522,11 +567,11 @@ class MWDataMgr:
             os.makedirs(dirname)
         except FileExistsError:
             print(f"{bcolors.WARNING}Warning{bcolors.ENDC} <MWDataMgr.alog_2_csv>: Directory exists: \
-                \n\t > << {dirname} >>")
+                \n\t > < {dirname} >")
             if force_write:
-                print("\t > Overwriting data")
+                print("\t > Resolution: {bcolors.OKBLUE}Overwriting data{bcolors.ENDC}")
             else:
-                print("\t > Exiting and maintaining integrity of existing directory")
+                print("\t > Resolution: {bcolors.OKBLUE}Exiting and maintaining integrity of existing directory{bcolors.ENDC}")
                 exit(1)
         #iterate over the topics and open csv files, stepping through the publications writing the data
         topic_names = alog_dict["data"].keys()
@@ -584,9 +629,16 @@ class MWDataMgr:
             else:
                 children.append(f"{path}:{child}") 
 
-    def rosbag_2_csv(self, rosbag_dict:dict, dirname:str = None, header = None, force_write = False, delim = ',', eol = ''):
-        from functools import reduce
-        from operator import getitem
+    def rosbag_2_csv(self, rosbag_dict:dict, dirname:str = None, force_write = False, delim = ',', eol = ''):
+        """Turns an rosbag file which has been retrieved with our algorithm into a CSV file
+
+        Args:
+            alog_dict (dict): alog data as a dictionary
+            dirname (str, optional): output directory name. Defaults to None.
+            force_write (bool, optional): Whether or not we will automatically write over existing files. Defaults to False.
+            delim (str, optional): alternative delimeter. Defaults to ','.
+            eol (str, optional): alternative line terminator, either ''\\n or eol\\n. Defaults to ''.
+        """
         #messages sometimes contains nested dictionaries, so the header of a message is going to be top:to:bottom
 
         #messages are going to be extracted recursively down to the primitive type
@@ -598,7 +650,6 @@ class MWDataMgr:
             topic1.csv
             topic2.csv
             ...
-        The file is as wide as each topics time, number of components in the message, and the source if its included
         '''
         #make the new directory
         if dirname is None:
@@ -607,7 +658,7 @@ class MWDataMgr:
             os.makedirs(dirname)
         except FileExistsError:
             print(f"{bcolors.WARNING}Warning{bcolors.ENDC} <MWDataMgr.rosbag_2_csv>: Directory exists: \
-                \n\t > << {dirname} >>")
+                \n\t > < {dirname} >")
             if force_write:
                 print("\t > Overwriting data")
             else:
@@ -641,10 +692,17 @@ class MWDataMgr:
 
                 for msg in rosbag_dict["data"][topic]:
                     msg = msg[0]
-                    line = delim.join([str(reduce(getitem, accessor, msg)) for accessor in memoized_paths])+eol+'\n'
+                    line = delim.join([str(reduce(getitem, accessor, msg)).replace(",","|") for accessor in memoized_paths])+eol+'\n'
                     csv_file.write(line)
         return 
-    def _preview_path(self, metadata, directory):
+
+    def _preview_path(self, metadata:dict, directory:str):
+        """Helper function for MWDataMgr.convert_directory. Searches for all managed files, records their path, and counts the number of each match
+
+        Args:
+            metadata (Dict): Recursively built metadata about the requested directory and all its children
+            directory (str): Parent directory
+        """
         members = os.listdir(directory)
         for file in members:
             temp_path = directory+os.path.sep+file
@@ -663,7 +721,18 @@ class MWDataMgr:
                 else:
                     pass
 
-    def convert_directory(self, path=None, newdirectory=None, include_only = [], exclude = []):
+    def convert_directory(self, path:str=None, newdirectory=None, include_only = [], exclude = []):
+        """Searches an entire directory for all matching files, and converts them maintaining their relationship from the root directory
+
+        Args:
+            path (str, optional): Path to parent directory to be searched. Defaults to None.
+            newdirectory (str, optional): Directory to dump all the results to. This new directory becomes the root for all converted files. Defaults to None.
+            include_only (list, optional): Topic include only list. Defaults to [].
+            exclude (list, optional): Topic exclude list. Defaults to [].
+
+        Returns:
+            dict: Returns a dictionary of all matching directory data
+        """
         '''
         Returns a dictionary of all convertable files in a directory, as collection[filealias][data]
         Where 'data' would be a dictionary consisting of .alog, ._moos, and .bag data
@@ -682,7 +751,7 @@ class MWDataMgr:
         num_files = reduce(add, path_metadata['counts'].values())
         
         if num_files > 15:
-            print(f"Warning: You are requesting to convert over fifteen files in the path provided ({num_files}). \n \
+            print(f"{bcolors.WARNING}Warning{bcolors.ENDC}: You are requesting to convert over fifteen files in the path provided ({num_files}). \n \
                 \t - .alog : {path_metadata['counts']['alogs']}\n \
                 \t - ._moos: {path_metadata['counts']['moosconfs']}\n \
                 \t - .bags : {path_metadata['counts']['bags']}")
@@ -695,7 +764,7 @@ class MWDataMgr:
         directory_collection = dict()
 
         for fnum, file in enumerate(path_metadata['paths']):
-            print(f"Working on file {fnum+1}/{num_files}")
+            print(f"{bcolors.OKGREEN}Working{bcolors.ENDC}: On file {fnum+1}/{num_files}")
             #TODO: Check to see if an alias is already in the directory collection and raise a warning for bad file names
             file_path = file.split(os.path.sep)
             file_path.pop()
@@ -711,6 +780,9 @@ class MWDataMgr:
 
             if '.alog' == file[-5:]:
                 alogfile_data = self.get_alog(alogf=file, include_only=include_only, exclude=exclude, use_strategies=True)
+                if alogfile_data is None:
+                    print(
+                        f"{bcolors.WARNING}Warning{bcolors.ENDC}: MWDataMgr.get_alog returned None and is assumed to have been handled elsewhere, continuing:\n\t- < {file} >")
                 directory_collection.update({alogfile_data['info']['alias']:alogfile_data})
                 csv_filepath = new_file_path+alogfile_data['info']['alias'].lower()+"_alog_csvs"
                 self.alog_2_csv(alog_dict=alogfile_data, dirname=csv_filepath, force_write=True, ignore_src=False)
@@ -723,6 +795,10 @@ class MWDataMgr:
                 pass
             elif '.bag' == file[-4:]:
                 rosbag_data = self.get_rosbag(rosbagf=file, include_only=include_only, exclude=exclude)
+                if rosbag_data is None:
+                    print(
+                        f"{bcolors.WARNING}Warning{bcolors.ENDC}: MWDataMgr.get_rosbag returned None and is assumed to have been handled elsewhere, continuing:\n\t- < {file} >")
+                    continue
                 directory_collection.update({rosbag_data['info']['alias']:rosbag_data})
                 csv_filepath = new_file_path+rosbag_data['info']['alias'].lower()+"_ros_csvs"
                 self.rosbag_2_csv(rosbag_dict=rosbag_data, dirname=csv_filepath, force_write=True)
@@ -736,6 +812,14 @@ class MWDataMgr:
         return directory_collection
 
     def get_topic_ix(self, path):
+        """Parses a TOPIC_IX configuration file for this MWDataMgr.
+
+        Args:
+            path (str): Path to configuration file
+
+        Returns:
+            list: Returns list of IX topics to match
+        """
         ix_list = []
         with open(path, "r") as cfg_file:
             file_data = cfg_file.readlines()
@@ -747,7 +831,7 @@ class MWDataMgr:
                     line = line.replace(" ", "")
                     ftype = line.split("=")[-1].strip()
                     if ftype != "TOPIC_IX":
-                        print(f"Wrong configuration file type for this argument\n\t Should be \"TOPIC_IX\" and got \"{ftype}\" >>")
+                        print(f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_topic_ix>: Wrong configuration file type for this argument\n\t Should be \"TOPIC_IX\" and got \"{ftype}\" >")
                         exit(1)
                     break 
             #we either ran through the whole file finding nothing or we were passed a configuration file with a bad configuration
@@ -763,11 +847,16 @@ class MWDataMgr:
                         ix_list.append(line)
             else:
                 #we reached the bottom of the file without finding a configuration file type
-                print("Incorrect use of configuration file - file has been read without any configuration type declaration. i.e. CFGT=TOPIC_IX")
+                print("{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_topic_ix>: Incorrect use of configuration file - file has been read without any configuration type declaration. i.e. CFGT=TOPIC_IX")
                 exit(1)
             return ix_list
 
     def get_moos_topic_mapping(self, path):
+        """Parses MOOS_TOPIC_MAPPING configuration file for the MWDataMgr and adds topic-strategy matchings to its collection
+
+        Args:
+            path (str): Path to MOOS_TOPIC_MAPPING file. 
+        """
         strategies=dict()
         with open(path, "r") as cfg_file:
             file_data = cfg_file.readlines()
@@ -779,7 +868,7 @@ class MWDataMgr:
                     line = line.replace(" ", "").strip()
                     ftype = line.split("=")[-1]
                     if ftype != "MOOS_TOPIC_MAPPING":
-                        print(f"Wrong configuration file type for this argument\n\t Should be \"MOOS_TOPIC_MAPPING\" and got \"{ftype}\" >>")
+                        print(f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_moos_topic_mapping>: Wrong configuration file type for this argument\n\t Should be \"MOOS_TOPIC_MAPPING\" and got \"{ftype}\" >")
                         exit(1)
                     break 
             #we either ran through the whole file finding nothing or we were passed a configuration file with a bad configuration
@@ -796,17 +885,17 @@ class MWDataMgr:
                             strategies.update({topic:self.strategy_aliases[strategy]})
                         else:
                             aliases = "\n".join([f'\t\t - {alias}' for alias in self.strategy_aliases])
-                            print(f"Warning: Unregistered standard strategy. Got << {line} >>.")
+                            print(f"{bcolors.WARNING}Warning{bcolors.ENDC}: Unregistered standard strategy. Got < {line} >.")
                             print(f"\t Needs to be in the form of: MOOS_VAR = STRATEGY_ALIAS")
                             print(f"Available aliases: \n{aliases}")
                     elif line.count('=') > 1:
-                        print(f"Warning: Malformed configuration statement\n\t << {line} >>")
+                        print(f"{bcolors.WARNING}Warning{bcolors.ENDC}: Malformed configuration statement\n\t < {line} >")
                     else:
                         pass 
                 self.add_strategies(strategies=strategies)
             else:
                 #we reached the bottom of the file without finding a configuration file type
-                print("Incorrect use of configuration file - file has been read without any configuration type declaration. i.e. CFGT=TOPIC_IX")
+                print("{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_moos_topic_mapping>: Incorrect use of configuration file - file has been read without any configuration type declaration. i.e. CFGT=TOPIC_IX")
                 exit(1)  
 
 if __name__ == "__main__":
@@ -829,8 +918,9 @@ if __name__ == "__main__":
 
     #CHECK AND PARSE ARGUMENTS
     if len(sys.argv) == 1:
-        print(f"Error: Must provide additional arguments")
+        print(f"{bcolors.FAIL}Error{bcolors.ENDC}: Must provide additional arguments")
     
+    #Default parameters
     output_directory = None
     exclude = []
     include_only = []
@@ -841,7 +931,7 @@ if __name__ == "__main__":
         output_directory = args.output
 
     if args.exclude != [] and args.include_only != []:
-        print(f"Error: Providing topics to both include_only and exclude returns an empty set, thus yielding no data.")
+        print(f"{bcolors.FAIL}Error{bcolors.ENDC}: Providing topics to both include_only and exclude returns an empty set, thus yielding no data.")
         exit(1)
 
     if args.exclude != []:
@@ -865,7 +955,7 @@ if __name__ == "__main__":
         if not isinstance(output_types, list):
             output_types = [output_types]
         if any([str(elem) not in mwDataMgr.supported_outputs for elem in output_types]):
-            print(f"Error: A requested output is not supported\n\t << {output_types} >>\n\t Supported types:")
+            print(f"{bcolors.FAIL}Error{bcolors.ENDC}: A requested output is not supported\n\t < {output_types} >\n\t Supported types:")
             print("\n".join([f"\t\t- \"{t}\"" for t in mwDataMgr.supported_outputs]))
 
     if args.moos:
@@ -875,11 +965,14 @@ if __name__ == "__main__":
             if os.path.isfile(path):
                 mwDataMgr.get_moos_topic_mapping(path)
 
-    #parse execution statements
+    #There are four exclusive interactions and outcomes for engaging with this program
+
+    #Interaction 1 - help is automatically captured and then program terminates
+
     #For this terminal applications use, we are either operating on a single file, or a directory
-    #We cannot provide a  source and a directory, so only work on one
+    #We cannot provide a source and a directory, so only work on one
     if args.examples:
-        #TODO - Display examples for intended use applications
+        #Interaction 2 - User wants to see examples (ignores everything else)
         print("MWDataMgr examples and intended result -")
         print("This script is intended for use with .alog, ._moos, and .bag files. With this you can do two things: \n\
             \t- Run the script and pass a single file with -s or --source \n\
@@ -909,10 +1002,11 @@ if __name__ == "__main__":
             \t --include_topics include_only_list.txt, --moos_mappings moos_topic_mappings.txt, etc..")
         exit(0)
     elif args.source != None and args.directory == None:
+        #Interaction 3 - User wants to convert a single file
         source = args.source
         #check if file exists and is file
         if not any(ftype in source for ftype in mwDataMgr.managed_files):
-            print("Unrecognized file type")
+            print("{bcolors.FAIL}Error{bcolors.ENDC}: Unrecognized file type")
             exit(1)
         #get the data and conduct error checking on the file type
         if '.alog' == source[-5:]:
@@ -926,7 +1020,8 @@ if __name__ == "__main__":
         elif '.bag' == source[-4:]:
             data = mwDataMgr.get_rosbag(source, include_only=include_only, exclude=exclude)
         else: 
-            print(f"Unrecognized filetype < {source} >")
+            #redundant check
+            print(f"{bcolors.FAIL}Error{bcolors.ENDC} Unrecognized filetype < {source} >")
         #we now have the data, start to write the data
         if args.output:
             #if we are given a desired output directory, we take it with no modifications, only checking so see if a slash is included in the path provided
@@ -947,10 +1042,10 @@ if __name__ == "__main__":
             print("Directory already exists, overwriting existing files")
             ans = input("Do you with to continue with overwriting any existing files in this directory? (y/n)")
             if ans[0].lower() == 'n':
-                print("Shutting down and not processing conversion request.")
+                print("\t> Resolution: {bcolors.OKBLUE}Shutting down and not processing conversion request{bcolors.OKBLUE}.")
                 exit(0)
             else:
-                print(f"Overwriting data in < {output_directory} >")
+                print(f"\t> Resolution: {bcolors.OKBLUE}Overwriting data in < {output_directory} >{bcolors.OKBLUE}")
         if '.alog' == source[-5:]:
             if 'csv' in output_types:
                 csv_path = output_directory+data["info"]["alias"]+"_alog_csvs"
@@ -966,15 +1061,16 @@ if __name__ == "__main__":
                 mwDataMgr.dump_json(data, output_directory+os.path.sep+data["info"]["alias"]+"_ros")
 
     elif args.directory != None and args.source == None:
+        #Interaction 4 - User wants to convert a whole directory
         src_directory = args.directory 
         dest_directory = output_directory
         if os.path.exists(src_directory):
             if os.path.isdir(src_directory):
                 mwDataMgr.convert_directory(src_directory, dest_directory, include_only=include_only, exclude=exclude)
             else:
-                print(f"Source directory does not exist:\n\t- << {src_directory} >>")
+                print(f"Source directory does not exist:\n\t- < {src_directory} >")
         else:
-            print(f"Path does not exist:\n\t- << {src_directory} >>")
+            print(f"Path does not exist:\n\t- < {src_directory} >")
     else:
         print("The CLI has been misused. Try passing -e for examples.")
         exit(0)
