@@ -1,0 +1,7 @@
+Git LFS augments files and perverts the encryption of the ROS bag files, therefore data must be kept elsewhere. To find data to run the unit tests and ensure your environment is setup correctly, download the directory "data" linked below, and put next to this file. 
+>> https://drive.google.com/drive/folders/1J6xiA3yv2IZJd6KcmOR6m9nBgSdJeehW?usp=sharing
+MWDataMgr/
+  testing_space/
+    data/
+    data_src.txt
+    ...
