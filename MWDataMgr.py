@@ -577,8 +577,8 @@ class MWDataMgr:
             if force_write:
                 print("\t > Resolution: {bcolors.OKBLUE}Overwriting data{bcolors.ENDC}")
             else:
-                print("\t > Resolution: {bcolors.OKBLUE}Exiting and maintaining integrity of existing directory{bcolors.ENDC}")
-                exit(1)
+                print("\t > Resolution: {bcolors.OKBLUE}Skipping file{bcolors.ENDC}")
+                return
         #iterate over the topics and open csv files, stepping through the publications writing the data
         topic_names = alog_dict["data"].keys()
         for topic in topic_names:
@@ -668,8 +668,8 @@ class MWDataMgr:
             if force_write:
                 print("\t > Overwriting data")
             else:
-                print("\t > Exiting and maintaining integrity of existing directory")
-                exit(1)
+                print("\t > Skipping file")
+                return
         #iterate over the topics and open csv files, stepping through the publications writing the data
         topic_names = rosbag_dict["data"].keys()
         for topic in topic_names:
