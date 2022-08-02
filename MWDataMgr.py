@@ -30,16 +30,13 @@ license: MIT Licence
 
 
 todo: 
- - Update error and warning messages to be more complete and uniform
- - Improve error handling and aethestics for how files are named and formatted
- - Add special moos topic mapping arguments for the command line utility, where a 
-    configuration file is passed with provides mappings from TOPIC to a corresponding parsing strategy
- - Add inclusion/exclusion configuration file support for CLI directory conversions
  - Add ability to clip files based on time stamp - forseeing a challenge with different time management conventions between ROS and MOOS
- - Add docstrings to Python API
- - Clean up code
  - Benchmark and optimize performance with cProfile
- - Add type hinting to functions and API
+ - Test on more data to improve error handling
+ - When working with CLI and converting directories, scan a destination directory
+  to see what files already match the files which are to be converted, and skip them to reduce job time. Assume that
+  the user will delete files they want reworked
+
 '''
 
 from datetime import datetime
@@ -391,7 +388,7 @@ class MWDataMgr:
                             chunks.pop(idx)
                             continue
                         if(idx == 0):
-                            time = float(chunks[idx])
+                            time = float(chunks[idx])+float(data["info"]["logstart"])
                         elif idx == 1:
                             topic = chunks[idx].strip()
                         elif idx == 2:
@@ -452,7 +449,12 @@ class MWDataMgr:
         Returns:
           Dict -- Returns nested dictionaries and arrays
         """
-
+        #TODO: Can add source node for each message
+        #bag = rosbag.Bag(file)
+        #generator = bag.read_messages(topics=topic)
+        #msg_lst=list(gen)
+        #msg = msg_lst[0]
+        #msg.message.origin_node
         try:
             if "rosbag" not in sys.modules:
                 print(f"{bcolors.OKBLUE}Importing rosbag - this may take some time...{bcolors.ENDC}")
@@ -484,56 +486,60 @@ class MWDataMgr:
             print(
                 f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_rosbag>: Unindexed/Corrupted ROS bag\n\t- < {rosbagf} >\n\t- Try running \"$ rosbag reindex {rosbagf}\"")
             return
-        #Get the high level bag info
-        #src_fname = bag.filename.split(os.path.sep)[-1]
         src_fname = bag.filename
-        data["info"].update({"logfile":src_fname,
-            "alias":src_fname.split(os.path.sep)[-1].split('.')[0],
-            "opendate":bag.get_start_time(),
-            "logstart":bag.get_start_time(),
-            "topic_metadata":dict()})
+        try:
+            print(
+                f"{bcolors.OKGREEN}Working{bcolors.ENDC}: Reading < {rosbagf.split(os.path.sep)[-1]} >")
 
-        baginfo = bag.get_type_and_topic_info()
-        print(
-            f"{bcolors.OKGREEN}Working{bcolors.ENDC}: Reading < {rosbagf.split(os.path.sep)[-1]} >")
+            data["info"].update({"logfile":src_fname,
+                "alias":src_fname.split(os.path.sep)[-1].split('.')[0],
+                "opendate":bag.get_start_time(),
+                "logstart":bag.get_start_time(),
+                "topic_metadata":dict()})
 
-        job_size = 0
-        for topic_id, topic in enumerate(baginfo.topics.keys()):
-            if topic not in self._ros_always_exclude and not (include_only != [] and topic not in include_only or topic in exclude):
-                job_size+=baginfo.topics[topic][1]
+            baginfo = bag.get_type_and_topic_info()
 
-        msgs_read = 0  
-        for topic_id, topic in enumerate(baginfo.topics.keys()):
-            #begin to instantiate a topic subtree to be inserted into the data after
-    
-            if include_only != [] and topic not in include_only or topic in exclude or topic in self._ros_always_exclude:
-                continue
+            job_size = 0
+            for topic_id, topic in enumerate(baginfo.topics.keys()):
+                if topic not in self._ros_always_exclude and not (include_only != [] and topic not in include_only or topic in exclude):
+                    job_size+=baginfo.topics[topic][1]
 
-            topic_data = {
-                "msg_type":baginfo.topics[topic][0],
-                "connections":baginfo.topics[topic][2],
-            }
-            
-            data["info"]["topic_metadata"].update({topic:topic_data})
-            data["data"].update({topic:[]})
-            for i, (_topic, msg, t) in enumerate(bag.read_messages(topics=topic)):
-                if msgs_read%1000 == 0:
-                    print(f"On {msgs_read}/{job_size}", end='\r')
-                try:
-                    #msg = {"time":t.to_sec(), **yaml.safe_load(str(msg))}
-                    msg = {"time":t.to_sec(), **yaml.load(str(msg), Loader=CLoader)}
-                except TypeError as e:
-                    print(f"{bcolors.WARNING}Warning{bcolors.ENDC} <MWDataMgr.get_rosbag>: Error reading message type: \
-                    \n\t > Message type < {baginfo.topics[topic][0]} > \
-                    \n\t > Lost data < {str(msg)} > \
-                    \n\t > Specific error: \"{e}\" \
-                    \n\t > Resolution: {bcolors.OKBLUE}Skipping topic{bcolors.ENDC}")
-                    data["data"].pop(topic)
-                    break
-                #time = msg.pop('time')
-                data["data"][topic].append([msg])
-                msgs_read+=1
-        return data
+            msgs_read = 0  
+            for topic_id, topic in enumerate(baginfo.topics.keys()):
+                #begin to instantiate a topic subtree to be inserted into the data after
+        
+                if include_only != [] and topic not in include_only or topic in exclude or topic in self._ros_always_exclude:
+                    continue
+
+                topic_data = {
+                    "msg_type":baginfo.topics[topic][0],
+                    "connections":baginfo.topics[topic][2],
+                }
+                
+                data["info"]["topic_metadata"].update({topic:topic_data})
+                data["data"].update({topic:[]})
+                for i, (_topic, msg, t) in enumerate(bag.read_messages(topics=topic)):
+                    if msgs_read%1000 == 0:
+                        print(f"On {msgs_read}/{job_size}", end='\r')
+                    try:
+                        #msg = {"time":t.to_sec(), **yaml.safe_load(str(msg))}
+                        msg = {"time":t.to_sec(), **yaml.load(str(msg), Loader=CLoader)}
+                    except TypeError as e:
+                        print(f"{bcolors.WARNING}Warning{bcolors.ENDC} <MWDataMgr.get_rosbag>: Error reading message type: \
+                        \n\t > Message type < {baginfo.topics[topic][0]} > \
+                        \n\t > Lost data < {str(msg)} > \
+                        \n\t > Specific error: \"{e}\" \
+                        \n\t > Resolution: {bcolors.OKBLUE}Skipping topic{bcolors.ENDC}")
+                        data["data"].pop(topic)
+                        break
+                    #time = msg.pop('time')
+                    data["data"][topic].append([msg])
+                    msgs_read+=1
+            return data
+        except rosbag.bag.ROSBagException:
+            print(
+                f"{bcolors.FAIL}Error{bcolors.ENDC} <MWDataMgr.py: MWDataMgr.get_rosbag>: Something went wrong while reading file\n\t- < {rosbagf} >\n\t- Caught under rosbag.bag.ROSBagException\"")
+            return None
             
     def dump_json(self, data_dict:dict, fname:str):
         #TODO: Add error checking to see if file exists similar to writing the CSV
@@ -785,7 +791,7 @@ class MWDataMgr:
                         f"{bcolors.WARNING}Warning{bcolors.ENDC}: MWDataMgr.get_alog returned None and is assumed to have been handled elsewhere, continuing:\n\t- < {file} >")
                 directory_collection.update({alogfile_data['info']['alias']:alogfile_data})
                 csv_filepath = new_file_path+alogfile_data['info']['alias'].lower()+"_alog_csvs"
-                self.alog_2_csv(alog_dict=alogfile_data, dirname=csv_filepath, force_write=True, ignore_src=False)
+                self.alog_2_csv(alog_dict=alogfile_data, dirname=csv_filepath, force_write=False, ignore_src=False)
                 nickname = new_file_path+alogfile_data['info']['alias'].lower()
                 self.dump_json(alogfile_data, fname=nickname)
             elif '._moos' == file[-6:]:
@@ -801,7 +807,7 @@ class MWDataMgr:
                     continue
                 directory_collection.update({rosbag_data['info']['alias']:rosbag_data})
                 csv_filepath = new_file_path+rosbag_data['info']['alias'].lower()+"_ros_csvs"
-                self.rosbag_2_csv(rosbag_dict=rosbag_data, dirname=csv_filepath, force_write=True)
+                self.rosbag_2_csv(rosbag_dict=rosbag_data, dirname=csv_filepath, force_write=False)
                 nickname = new_file_path+rosbag_data['info']['alias'].lower()
                 self.dump_json(rosbag_data, fname=nickname)
             
@@ -1019,6 +1025,9 @@ if __name__ == "__main__":
                 mwDataMgr.dump_json(data, data["info"]["alias"]+"_moos")
         elif '.bag' == source[-4:]:
             data = mwDataMgr.get_rosbag(source, include_only=include_only, exclude=exclude)
+            if data is None:
+                print("Error in file")
+                exit(1)
         else: 
             #redundant check
             print(f"{bcolors.FAIL}Error{bcolors.ENDC} Unrecognized filetype < {source} >")
