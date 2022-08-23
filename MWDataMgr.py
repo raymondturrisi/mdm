@@ -30,12 +30,8 @@ license: MIT Licence
 
 
 todo: 
- - Add ability to clip files based on time stamp - forseeing a challenge with different time management conventions between ROS and MOOS
  - Benchmark and optimize performance with cProfile
  - Test on more data to improve error handling
- - When working with CLI and converting directories, scan a destination directory
-  to see what files already match the files which are to be converted, and skip them to reduce job time. Assume that
-  the user will delete files they want reworked
 
 '''
 
@@ -702,30 +698,45 @@ class MWDataMgr:
                     csv_file.write(line)
         return 
 
-    def _preview_path(self, metadata:dict, directory:str):
+    def _preview_path(self, metadata:dict, directory:str, target:bool=True):
         """Helper function for MWDataMgr.convert_directory. Searches for all managed files, records their path, and counts the number of each match
 
         Args:
             metadata (Dict): Recursively built metadata about the requested directory and all its children
             directory (str): Parent directory
         """
-        members = os.listdir(directory)
-        for file in members:
-            temp_path = directory+os.path.sep+file
-            if os.path.isdir(temp_path):
-                self._preview_path(metadata, temp_path)
-            elif os.path.isfile(temp_path):
-                if '.alog' == file[-5:]:
-                    metadata['counts']['alogs']+=1
-                    metadata['paths'].append(temp_path)
-                elif '._moos' == file[-6:]:
-                    metadata['counts']['moosconfs']+=1
-                    metadata['paths'].append(temp_path)
-                elif '.bag' == file[-4:]:
-                    metadata['counts']['bags']+=1
-                    metadata['paths'].append(temp_path)
-                else:
-                    pass
+        if os.path.isdir(directory):
+            if target:
+                #Here we consider only target files/suffixes
+                members = os.listdir(directory)
+                for file in members:
+                    temp_path = directory+os.path.sep+file
+                    if os.path.isdir(temp_path):
+                        self._preview_path(metadata, temp_path)
+                    elif os.path.isfile(temp_path):
+                        if '.alog' == file[-5:]:
+                            metadata['counts']['alogs']+=1
+                            metadata['paths'].append(temp_path)
+                        elif '._moos' == file[-6:]:
+                            metadata['counts']['moosconfs']+=1
+                            metadata['paths'].append(temp_path)
+                        elif '.bag' == file[-4:]:
+                            metadata['counts']['bags']+=1
+                            metadata['paths'].append(temp_path)
+                        else:
+                            pass
+            else:
+                #we are collecting all the files and path in the directory
+                members = os.listdir(directory)
+                for file in members:
+                    temp_path = directory+os.path.sep+file
+                    if os.path.isdir(temp_path):
+                        self._preview_path(metadata, temp_path, target=False)
+                    elif os.path.isfile(temp_path):
+                        metadata['paths'].append(temp_path)
+        else:
+            #This is a generic function - error handling is held elsewhere
+            pass
 
     def convert_directory(self, path:str=None, newdirectory=None, include_only = [], exclude = []):
         """Searches an entire directory for all matching files, and converts them maintaining their relationship from the root directory
@@ -751,11 +762,30 @@ class MWDataMgr:
             path_upto = os.path.sep.join(split_path[:-1])+os.path.sep
         else:
             path_upto = ''
-        path_metadata = {'paths':[], 'counts':{'alogs':0, 'moosconfs':0, 'bags':0}}
 
+        
+        path_metadata = {'paths':[], 'counts':{'alogs':0, 'moosconfs':0, 'bags':0}}
         self._preview_path(path_metadata, path)
         num_files = reduce(add, path_metadata['counts'].values())
-        
+        target_metadata = {'paths':[], 'counts':{'alogs':0, 'moosconfs':0, 'bags':0}}
+        self._preview_path(target_metadata, newdirectory, target=False)
+        #Why have such a terrible one liner one may ask? One can also ask why Python provides such a performance incentive to do so. 
+        #This is also maybe a roundabout solution.
+        target_files = list(filter(lambda f: f is not None, map(lambda f: f.split(os.path.sep)[-2] if 'csv' not in f else None, target_metadata['paths'])))
+
+        for destination_f in target_files: #0 to some number of found files in the destination path
+            for src_f in path_metadata['paths']: #compare the names of the files found in the destination path with those which are asked to be converted
+                #if there is a match, we skip this file. we only want to convert "new" data which has been added, to serve as a speedup.
+                if destination_f in src_f:
+                    path_metadata['paths'] = list(filter(lambda x: src_f not in x, path_metadata['paths']))
+                    num_files-=1
+                    if '.alog' == src_f[-5:]:
+                        path_metadata['counts']['alogs']-=1
+                    elif '._moos' == src_f[-6:]:
+                        path_metadata['counts']['moosconfs']-=1
+                    elif '.bag' == src_f[-4:]:
+                        path_metadata['counts']['bags']-=1
+
         if num_files > 15:
             print(f"{bcolors.WARNING}Warning{bcolors.ENDC}: You are requesting to convert over fifteen files in the path provided ({num_files}). \n \
                 \t - .alog : {path_metadata['counts']['alogs']}\n \
@@ -766,6 +796,11 @@ class MWDataMgr:
                 pass 
             else: 
                 exit(0)
+
+        if num_files == 0:
+            print(f"{bcolors.WARNING}Warning{bcolors.ENDC}: No new files to convert (target matches vs. destination matches). \n \
+                \r\t > Delete data you wish to replace in the target directory. \n \
+                \r\t > Report a bug.")
 
         directory_collection = dict()
 
@@ -911,6 +946,7 @@ if __name__ == "__main__":
     #CONFIGURE ARGUMENT PARSER
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--examples", help="Display example uses", action="store_true")
+    parser.add_argument("--templates", help="Generate a template for moos topic mappings, inclusion/exclusions, and a shell script for converting a directory", action="store_true")
     parser.add_argument("-s", "--source", help="Single file source", default=None)
     parser.add_argument("-d", "--directory", help="Mission directory", default=None)
     parser.add_argument("-o", "--output", help="Output directory", default=None)
@@ -1080,6 +1116,109 @@ if __name__ == "__main__":
                 print(f"Source directory does not exist:\n\t- < {src_directory} >")
         else:
             print(f"Path does not exist:\n\t- < {src_directory} >")
+    elif args.templates:
+        #generate examples for topic mappings, inclusion/exclusions, and a shell script for converting a directory
+        with open("mw_ix.cfg", 'w') as f:
+            f.write("Example %MWDataMgr topic inclusion/exclusion configuration file\
+                \r%The example topics come with an implication that this is for exclusion\
+                \r%Can be used for both MOOS and ROS topic names. Generally use different conventions so double matchings are not a problem.\
+                \r%Configuration type for MWDataMgr. Either TOPIC_IX or MOOS_TOPIC_MAPPING\
+                \rCFGT=TOPIC_IX\
+                \r\n\
+                \r%expected configuration is agnostic to MOOS or ROS or how either is used, only matters how it is passed to the program\
+                \r\n\
+                \r%MOOS TOPICS \
+                \r%%Some suggested topics to ignore which are included in alog files \
+                \rUMAC_551_STATUS \
+                \rPREALM_STATUS \
+                \rREALMCAST_CHANNELS \
+                \rLOGGER_DIRECTORY \
+                \rAPPCAST_REQ_SHORESIDE \
+                \rDB_EVENT \
+                \rUMAC_9186_STATUS \
+                \rPLOGGER_STATUS \
+                \rREGION_INFO \
+                \rAPPCAST_REQ \
+                \rAPPCAST_REQ_ALL \
+                \rPREALM_ITER_GAP \
+                \rPREALM_ITER_LEN \
+                \rAPPCAST DB_TIME \
+                \rDB_UPTIME \
+                \rDB_CLIENTS \
+                \rDB_QOS \
+                \rPSHARE_INPUT_SUMMARY \
+                \rPMARINEVIEWER_STATUS \
+                \rHELM_MAP_CLEAR \
+                \rPMV_CONNECT \
+                \rPSHARE_STATUS \
+                \rPMARINEVIEWER_ITER_GAP \
+                \rPMARINEVIEWER_ITER_LEN \
+                \rPSHARE_OUTPUT_SUMMARY \
+                \rUFLDANEMO_ITER_LEN \
+                \rPHI_HOST_IP \
+                \rPHI_HOST_INFO \
+                \rVIEW_ARROW \
+                \rPHOSTINFO_STATUS \
+                \rPHI_HOST_IP_ALL \
+                \rPHI_HOST_IP_VERBOSE \
+                \rPHI_HOST_PORT_DB \
+                \rUFLDSHOREBROKER_STATUS \
+                \rUFLDSHOREBROKER_ITER_LEN \
+                \rPHOSTINFO_ITER_LEN \
+                \rPHOSTINFO_ITER_GAP \
+                \rNODE_BROKER_PING \
+                \rPSHARE_CMD \
+                \rNODE_BROKER_VACK \
+                \rNODE_REPORT \
+                \rSTATION_ALL \
+                \rMVIEWER_LCLICK \
+                \rMOOS_MANUAL_OVERRIDE_ALL \
+                \rRETURN_ALL \
+                \rVIEW_SEGLIST \
+                \rVIEW_POINT \
+                \rPROC_WATCH_FULL_SUMMARY \
+                \r\n\
+                \r%ROS TOPICS \
+                \r%%These topics by default are always excluded from a search since they are buggy (regardless if they are included here or asked for)\
+                \r/rosout\
+                \r/rosout_agg \
+                \r/diagnostics \
+                \r/diagnostics_agg \
+                \r/diagnostics_toplevel_state \
+                ".replace('  ', ''))
+
+            with open("mw_moos_topic_mapping.cfg", 'w') as f:
+                f.write("Example %MWDataMgr topic topic / parsing algorithm pairing configuration file\
+                \r%The example topics below are related to the provided dataset for testing installation\
+                \r%Algorithm list\
+                \r% - CSP_SIMPLE = Comma Separated Pairs i.e. \"variable1=value1,variable2=value2,variable3=value3\"\
+                \r% - CSP_NESTED = Comma Separated Pairs with nested lists i.e. \"variable1=value1,variable2=value2,variable3=\"VAL1,VAL2,VAL3,VAL4\"\"\
+                \r% - NUMBER = Integer or float type\
+                \r% - BOOLEAN = Boolean value, i.e. True, False, true, false, TRUE, FALSE. All will reduce to true and false which is JSON standard\
+                \r%If a message is just a string and should be maintained as-is, put nothing. Existing commas in the message get overwritten with pipes so the message can remain in a single cell of a csv file.\
+                \r\
+                \rCFGT=MOOS_TOPIC_MAPPING\
+                \r\
+                \rWIND_CONDITIONS = CSP_SIMPLE\
+                \rWIND_CONDITIONS_GT = CSP_SIMPLE\
+                \rWIND_DIR_MOD = NUMBER \
+                \rUFLDANEMO_ITER_GAP = NUMBER\
+                \rUFLDANEMO_ITER_LEN = NUMBER\
+                \rUFLDANEMO_STATUS = CSP_NESTED\
+                \r\
+                \r%Standard moos topics are pre-assigned within the program\
+                ".replace('  ', ''))
+            bs = lambda n: ''.join(['\b' for elem in range(0,n)]) 
+            with open("mw_directory_conversion.sh", 'wb') as f:
+                f.write(bytearray(f"#!/bin/bash\r\n#Example directory conversion script\
+                \rpython3 {sys.argv[0]} -d data_directory/ \\\
+                \n    -o destination_directory \\\
+                \n    -x mw_ix.cfg \\\
+                \n    --moos \\\
+                \n    --topic_mapping mw_moos_topic_mapping.cfg \
+                ".replace("                ", ''), 'UTF-8'))
+
+        pass 
     else:
         print("The CLI has been misused. Try passing -e for examples.")
         exit(0)
