@@ -1,9 +1,9 @@
 '''
-author: Raymond Turrisi <rturrisi@mit.edu>
+author: Raymond Turrisi <rturrisi(at)mit(dot)edu>
 organization: MIT Marine Autonomy Lab
 circa: Su'2022
 fname: MWDataMgr.py
-status: Development - For internal use only
+status: Development - Open for public use
 
 about: MiddleWare Data Manager - Utilities for processing MOOS and/or ROS data and logs. 
         Intent to support .alog, ._moos, .bag files, with an extensible design to be able 
@@ -27,11 +27,6 @@ license: MIT Licence
     IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
     WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
     SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-todo: 
- - Benchmark and optimize performance with cProfile
- - Test on more data to improve error handling
 
 '''
 
