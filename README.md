@@ -1,4 +1,8 @@
-# MWDataMgr
+# Middleware Data Manager
+
+Warning: This library/package is in the middle of being ported over from a private GitHub repository which has been used private, and is slowly being turned into a more general python package. Names have changed, and the installation via PyPi may not work. Currently, this was only published to claim the name on PyPi, while I work towards refactoring the code into a more publishable library for a broader audience. Everything below this warning message describes the original GitHub repository, not precisely the PyPi package. 
+
+---
 
 This is an in-development Python utility for converting MOOS log files and ROS bag files into CSV files for post processing analysis. See testing space for use cases. 
 
@@ -97,6 +101,3 @@ self.strategy_aliases = {"NUMBER":self.number_msg,
 Where you can add a parsing function with the same parameter/return template as the other functions, and when you setup a topic mapping file it should automatically link your topic / algorithm type, and the algorithm within the class, during processing. 
 
 I hope you find this useful - if you notice any bugs, or have an idea for what else can be added, you can send me an email at **raymond(dot)turrisi(at)gmail(dot)com**. If you end up using it and find it useful, I'd also appreciate the email knowing where the program finds itself and whose benefitting from it. 
-
-If someone is screaming with ambition and has ideas for where else this can go, I'm also open to collaboration as long as the scope is appropriate. 
-
