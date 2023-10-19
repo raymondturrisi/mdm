@@ -1,0 +1,8 @@
+ - Add a __main__.py instantiation of the program
+ - Make it compatible/better to use in Notebooks
+ - Add examples
+ - Add templates and template generation
+ - Fix remote rosbag dependency with URL installation and propose some alternative (ask for permission to install if we get there?)
+ - Describe libyaml dependencies - try to find same one for Windows
+ - pyyaml dependency
+ - Get rid of array-based packed messages. Nest everything as {t:time,data:data,src:source_publisher}
