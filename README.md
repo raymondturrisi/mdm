@@ -1,6 +1,6 @@
 # Middleware Data Manager
 
-Warning: This library/package is in the middle of being ported over from a private GitHub repository which has been used private, and is slowly being turned into a more general python package. Names have changed, and the installation via PyPi may not work. Currently, this was only published to claim the name on PyPi, while I work towards refactoring the code into a more publishable library for a broader audience. Everything below this warning message describes the original GitHub repository, not precisely the PyPi package. 
+Warning: This library/package is in the middle of being ported over from a private GitHub repository which has been used offline for personal work, and is slowly being turned into a more general python package. Names have changed, and the installation via PyPi may not work. Currently, this was only published to claim the name on PyPi, while I work towards refactoring the code into a more publishable library for a broader audience. Everything below this warning message describes the original GitHub repository, not precisely the PyPi package. 
 
 ---
 
