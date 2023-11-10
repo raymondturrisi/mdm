@@ -7,7 +7,7 @@ here = os.path.abspath(os.path.dirname(__file__))
 with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
     long_description = "\n" + fh.read()
 
-VERSION = '0.0.143'
+VERSION = '0.9.0'
 DESCRIPTION = 'A middleware data manager for at least MOOS-IvP and ROS'
 LONG_DESCRIPTION = 'A package which provides configurable data extraction and data management tools from command line, within a Python application, or within a notebook-like environment.'
 

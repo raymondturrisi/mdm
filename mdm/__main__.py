@@ -284,9 +284,9 @@ if __name__ == '__main__':
                 f.write(bytearray(f"#!/bin/bash\r\n#Example directory conversion script\
                 \rpython3 -m mdm -d data_directory/ \\\
                 \n    -o destination_directory \\\
-                \n    -x mw_ix.cfg \\\
+                \n    -x mdm_ix.cfg \\\
                 \n    --moos \\\
-                \n    --topic_mapping mw_moos_topic_mapping.cfg \
+                \n    --topic_mapping mdm_moos_topic_mapping.cfg \
                 ".replace("                ", ''), 'UTF-8'))
 
         pass 
