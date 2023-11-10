@@ -2,14 +2,10 @@
 
 if __name__ == '__main__':
     from .mdm import mdm
+    from .mdm import bcolors
     import sys
     import argparse
-    from datetime import datetime
     import os
-    import json
-    from operator import add, getitem
-    from functools import reduce
-    from typing import Dict, AnyStr, Callable, List
     #CONFIGURE ARGUMENT PARSER
     parser = argparse.ArgumentParser()
     parser.add_argument("-e", "--examples", help="Display example uses", action="store_true")
@@ -20,6 +16,7 @@ if __name__ == '__main__':
     parser.add_argument("-x", "--exclude", help="List of topics to exclude - can be a list or a configuration file", default=[], nargs='*')
     parser.add_argument("-i", "--include_only", help="List of topics to include - can be a list or a configuration file", default=[], nargs='*')
     parser.add_argument("-t", "--type", help="Output file types <json>, <csv>.", default="csv", nargs='*')
+    parser.add_argument("-nw", "--nowarnings", help="Execute with no warnings", action="store_true")
     parser.add_argument("--moos", help="Will accept MOOS specific arguments. Without this they will be ignored.", action="store_true")
     parser.add_argument("--topic_mapping", help="MOOS - Configuration file mapping MOOS topic names to a standard message parser")
     parser.add_argument("--ros", help="Will accept ROS specific arguments")
@@ -66,6 +63,11 @@ if __name__ == '__main__':
         if any([str(elem) not in mgr.supported_outputs for elem in output_types]):
             print(f"{bcolors.FAIL}Error{bcolors.ENDC}: A requested output is not supported\n\t < {output_types} >\n\t Supported types:")
             print("\n".join([f"\t\t- \"{t}\"" for t in mgr.supported_outputs]))
+        else:
+            mgr.output_types = output_types
+
+    if args.nowarnings:
+        mgr.warnings = False
 
     if args.moos:
         #parse moos specific arguments, specifically the topic mapping parameters
@@ -152,9 +154,11 @@ if __name__ == '__main__':
             os.makedirs(output_directory)
         except FileExistsError:
             print("Directory already exists, overwriting existing files")
-            ans = input("Do you with to continue with overwriting any existing files in this directory? (y/n)")
+            ans = "y"
+            if mgr.warnings:
+                ans = input("Do you wish to continue with overwriting any existing files in this directory? (y/n)")
             if ans[0].lower() == 'n':
-                print("\t> Resolution: {bcolors.OKBLUE}Shutting down and not processing conversion request{bcolors.OKBLUE}.")
+                print(f"\t> Resolution: {bcolors.OKBLUE}Shutting down and not processing conversion request{bcolors.OKBLUE}.")
                 exit(0)
             else:
                 print(f"\t> Resolution: {bcolors.OKBLUE}Overwriting data in < {output_directory} >{bcolors.OKBLUE}")
@@ -185,7 +189,7 @@ if __name__ == '__main__':
             print(f"Path does not exist:\n\t- < {src_directory} >")
     elif args.templates:
         #generate examples for topic mappings, inclusion/exclusions, and a shell script for converting a directory
-        with open("mw_ix.cfg", 'w') as f:
+        with open("mdm_ix.cfg", 'w') as f:
             f.write("Example %mdm topic inclusion/exclusion configuration file\
                 \r%The example topics come with an implication that this is for exclusion\
                 \r%Can be used for both MOOS and ROS topic names. Generally use different conventions so double matchings are not a problem.\
@@ -254,7 +258,7 @@ if __name__ == '__main__':
                 \r/diagnostics_toplevel_state \
                 ".replace('  ', ''))
 
-            with open("mw_moos_topic_mapping.cfg", 'w') as f:
+            with open("mdm_moos_topic_mapping.cfg", 'w') as f:
                 f.write("Example %mdm topic topic / parsing algorithm pairing configuration file\
                 \r%The example topics below are related to the provided dataset for testing installation\
                 \r%Algorithm list\
@@ -276,9 +280,9 @@ if __name__ == '__main__':
                 \r%Standard moos topics are pre-assigned within the program\
                 ".replace('  ', ''))
             bs = lambda n: ''.join(['\b' for elem in range(0,n)]) 
-            with open("mw_directory_conversion.sh", 'wb') as f:
+            with open("mdm_directory_conversion.sh", 'wb') as f:
                 f.write(bytearray(f"#!/bin/bash\r\n#Example directory conversion script\
-                \rpython3 {sys.argv[0]} -d data_directory/ \\\
+                \rpython3 -m mdm -d data_directory/ \\\
                 \n    -o destination_directory \\\
                 \n    -x mw_ix.cfg \\\
                 \n    --moos \\\

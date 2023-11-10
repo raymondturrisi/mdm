@@ -32,6 +32,7 @@ license: MIT Licence
 
 from datetime import datetime
 import os
+import sys
 import json
 from operator import add, getitem
 from functools import reduce
@@ -89,6 +90,8 @@ class mdm:
         self._alogs = dict()
         self._moosconfs = dict()
         self._MWDataCollection = dict()
+        self.warnings = True
+        self.output_types = ["csv","json"]
 
         #When passed a configuration file, these are the MOOS parsing algorithm aliases which should be provided
         #in order to assign a parsing algorithm to a topic during runtime. 
@@ -566,9 +569,9 @@ class mdm:
             print(f"{bcolors.WARNING}Warning{bcolors.ENDC} <mdm.alog_2_csv>: Directory exists: \
                 \n\t > < {dirname} >")
             if force_write:
-                print("\t > Resolution: {bcolors.OKBLUE}Overwriting data{bcolors.ENDC}")
+                print(f"\t > Resolution: {bcolors.OKBLUE}Overwriting data{bcolors.ENDC}")
             else:
-                print("\t > Resolution: {bcolors.OKBLUE}Skipping file{bcolors.ENDC}")
+                print(f"\t > Resolution: {bcolors.OKBLUE}Skipping file{bcolors.ENDC}")
                 return
         #iterate over the topics and open csv files, stepping through the publications writing the data
         topic_names = alog_dict["data"].keys()
@@ -781,7 +784,7 @@ class mdm:
                     elif '.bag' == src_f[-4:]:
                         path_metadata['counts']['bags']-=1
 
-        if num_files > 15:
+        if num_files > 15 and self.warnings:
             print(f"{bcolors.WARNING}Warning{bcolors.ENDC}: You are requesting to convert over fifteen files in the path provided ({num_files}). \n \
                 \t - .alog : {path_metadata['counts']['alogs']}\n \
                 \t - ._moos: {path_metadata['counts']['moosconfs']}\n \
@@ -821,9 +824,11 @@ class mdm:
                         f"{bcolors.WARNING}Warning{bcolors.ENDC}: mdm.get_alog returned None and is assumed to have been handled elsewhere, continuing:\n\t- < {file} >")
                 directory_collection.update({alogfile_data['info']['alias']:alogfile_data})
                 csv_filepath = new_file_path+alogfile_data['info']['alias'].lower()+"_alog_csvs"
-                self.alog_2_csv(alog_dict=alogfile_data, dirname=csv_filepath, force_write=False, ignore_src=False)
+                if 'csv' in self.output_types:
+                    self.alog_2_csv(alog_dict=alogfile_data, dirname=csv_filepath, force_write=False, ignore_src=False)
                 nickname = new_file_path+alogfile_data['info']['alias'].lower()
-                self.dump_json(alogfile_data, fname=nickname)
+                if 'json' in self.output_types:
+                    self.dump_json(alogfile_data, fname=nickname)
             elif '._moos' == file[-6:]:
                 #moosconf_data = self.get_moosconf(moosconf=file)
                 #directory_collection.update({moosconf_data['info']['alias']:moosconf_data})
@@ -837,14 +842,18 @@ class mdm:
                     continue
                 directory_collection.update({rosbag_data['info']['alias']:rosbag_data})
                 csv_filepath = new_file_path+rosbag_data['info']['alias'].lower()+"_ros_csvs"
-                self.rosbag_2_csv(rosbag_dict=rosbag_data, dirname=csv_filepath, force_write=False)
+                if 'csv' in self.output_types:
+                    self.rosbag_2_csv(rosbag_dict=rosbag_data, dirname=csv_filepath, force_write=False)
                 nickname = new_file_path+rosbag_data['info']['alias'].lower()
-                self.dump_json(rosbag_data, fname=nickname)
+                if 'json' in self.output_types:
+                    self.dump_json(rosbag_data, fname=nickname)
             
         timenow = datetime.now()
         stamp = timenow.strftime("%Y_%m_%d_mission_data_whole")
         collection_filepath = newdirectory+stamp
-        self.dump_json(data_dict=directory_collection, fname = collection_filepath)
+        if 'json' in self.output_types:
+            self.dump_json(data_dict=directory_collection, fname = collection_filepath)
+
         return directory_collection
 
     def get_topic_ix(self, path):
